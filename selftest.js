@@ -178,6 +178,25 @@ check("the phases of every program add up to five months", Object.values(PROGRAM
   check("a promise someone else made goes to judgement, not into the score", !comms(c, other).obligations.some((x) => x.type === "promise") && comms(c, other).judgement.length === 1);
 }
 {
+  // without the reader: clear promises in emails to the client still count
+  const kept = kase({ events: [email("2026-10-06T11:00", "out", "Dear client, I will call you tomorrow at 3pm to go over the forms."), call("2026-10-07T14:00")] });
+  const p = comms(kept).obligations.find((x) => x.type === "promise");
+  check("without the reader, 'I will call you tomorrow at 3pm' is a promise due at 3pm the next day", p && p.due === at("2026-10-07T15:00") && p.verdict === "met");
+  const broken = kase({ events: [email("2026-10-08T11:00", "out", "Thank you. We will send the checklist on Monday.")] });
+  const q = comms(broken).obligations.find((x) => x.type === "promise");
+  check("'we will send it on Monday' with no email by Monday's end is a promise not kept", q && q.due === at("2026-10-13T00:00") && q.verdict === "missed");
+  const { phrasePromises } = require("./5-comms");
+  check("hedged or open-ended wording is not taken as a promise", ["If we receive the payment, we will call you tomorrow.", "I will try to call you tomorrow.", "We will update you next Monday.", "We will get back to you within 24 hours.",
+    "We will call you tomorrow if the documents are ready.", "I will follow up with you again next week on how this is progressing.", "I will call you on Monday next week."]
+    .every((t) => phrasePromises([email("2026-10-08T11:00", "out", t)]).length === 0));
+  // wording from real HOF emails
+  const kinds = ["I will follow up with you again on Monday regarding the progress of the LOR drafting.", "We will have a detailed meeting on Monday.", "We will reconnect on Tuesday to review your feedback.",
+    "I will reach out to you tomorrow, and hopefully, by then, everything will be compiled and finalized."].map((t) => (phrasePromises([email("2026-10-08T11:00", "out", t)])[0] || {}).action);
+  check("real promise wording is read with the right way to keep it", kinds.join(",") === "contact,talk,talk,contact", kinds.join(","));
+  const meet = kase({ events: [email("2026-10-08T11:00", "out", "We will have a detailed meeting on Monday."), email("2026-10-12T10:00", "out", "Dear client, please find the checklist attached.")] });
+  check("a promised meeting is not kept by an email", comms(meet).obligations.find((x) => x.type === "promise").verdict === "missed");
+}
+{
   const c = kase({ events: [task("2026-10-07T10:00", { subject: "Follow up documents" }), email("2026-10-07T15:00", "out", "Dear client, a reminder about the documents.")] });
   const t = comms(c).obligations.find((x) => x.type === "task");
   check("a follow-up task counts as done when the client was contacted on its due day, ticked or not", t && t.verdict === "met");
