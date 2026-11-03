@@ -7,10 +7,48 @@
 // follow-up must not lapse: while a case is live, the client hears from HOF regularly.
 // No network in here, so every rule is tested on invented cases.
 const { SETTINGS } = require("./config");
-const { DAY, dayStart, fmtWhen } = require("./1-clock");
+const { DAY, HOUR, OFF, dayStart, dateKey, fmtWhen } = require("./1-clock");
 
 // a client asked to be called, in so many words (used when the reader is off)
 const STRICT_CALL = /\b(call me|give me a (call|ring)|please call|pls call|plz call|kindly call|can you (please )?call|could you (please )?call|ring me|phone me|mujhe call|call kar(o|ein|en)|call back (to )?me)\b/i;
+
+// a promise to the client with a day on it, in so many words (used when the reader is off):
+// "I will call you tomorrow at 3pm", "we will send it on Monday", "I will follow up with you
+// on Monday", "we will reconnect on Tuesday". Left out: anything hedged or conditional ("if",
+// "once", "try to", "hopefully", "not") before or right after it, and "next Monday" or
+// "next week" (which week?).
+const STRICT_PROMISE = /\b(?:i|we)\s*(?:'ll|’ll|\swill|\sshall)\s+(?:(?:also|surely|definitely|again)\s+)?(call|ring|phone|give you a (?:call|ring)|email|send|share|update|get back to|revert|confirm|follow up|reach out|contact|get in touch|speak|talk|meet|connect|reconnect|have an? (?:\w+ )?(?:call|meeting|session|discussion))\b[^.!?\n]{0,80}?\b(today|tonight|tomorrow|this (?:morning|afternoon|evening)|(?:by |before )?(?:the )?end of (?:the )?(?:day|today)|eod|(?:on |by |this )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
+const HEDGE = /\b(if|unless|once|as soon as|whenever|try|trying|might|possibly|hopefully|not|cannot|unable|next)\b|n[’']t\b/i;
+const HEDGE_AFTER = /^(?:[^,;]*?\b(?:if|unless|once|provided|as soon as|subject to)\b|\s*(?:[,;]\s*)?(?:if|unless|once|provided|as soon as|subject to)\b|\s*(?:of )?next week\b)/i;
+const AT_TIME = /\b(?:at|by|before|around)\s+(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)/i;
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+// how a kind of promise is kept: a call; an email (or WhatsApp); a conversation (a call or a
+// meeting); or any contact at all
+const promiseAction = (verb) => (/^(call|ring|phone|give you a)/i.test(verb) ? "call"
+  : /^(speak|talk|meet|connect|reconnect|have an? )/i.test(verb) ? "talk"
+  : /^(follow up|reach out|contact|get in touch)/i.test(verb) ? "contact" : "email");
+function phrasePromises(events) {
+  const out = [];
+  for (const e of events) {
+    if (!emailToClient(e) || !e.text) continue;
+    for (const sentence of String(e.text).split(/(?<=[.!?])\s+|\n+/)) {
+      const m = STRICT_PROMISE.exec(sentence);
+      if (!m) continue;
+      const end = m.index + m[0].length;
+      if (HEDGE.test(sentence.slice(0, end)) || HEDGE_AFTER.test(sentence.slice(end))) continue;
+      const word = m[2].toLowerCase(), d0 = dayStart(e.at);
+      let add = 0;
+      if (word.includes("tomorrow")) add = 1;
+      else { const k = WEEKDAYS.findIndex((w) => word.includes(w)); if (k >= 0) add = ((k - new Date(d0 + OFF).getUTCDay() + 7) % 7) || 7; }
+      const tm = AT_TIME.exec(sentence);
+      const hour = tm ? (+tm[1] % 12) + (/p/i.test(tm[3]) ? 12 : 0) : null;
+      out.push({ event: e, quote: sentence.trim().slice(0, 220), action: promiseAction(m[1]), byPhrase: true,
+        when: `${m[2]}${tm ? ` ${tm[0].trim()}` : ""}`, dueDate: dateKey(d0 + add * DAY + 12 * HOUR), dueTime: tm && hour < 24 ? `${hour}:${tm[2] || "00"}` : "" });
+      break;                                   // one promise per email
+    }
+  }
+  return out;
+}
 
 const emailToClient = (e) => e.kind === "email" && e.dir === "out" && e.toClient && e.ok !== false && !e.bulk;
 const isOurCall = (e) => e.kind === "call" && e.dir === "out";
@@ -78,14 +116,15 @@ function computeComms(c, f, reading, { clock, now, extra = [] }) {
   }
 
   // ---- 3. promises, held to the time named. Only the case manager's own count.
-  for (const p of (readOk && reading.promises) || []) {
+  for (const p of readOk ? reading.promises || [] : phrasePromises(ev)) {
     const made = p.event;
     if (!inWindow(made.at)) continue;
     if (String(made.ownerId) !== owner) { judgement.push({ why: "A promise made by someone else on the case", event: made, quote: p.quote }); continue; }
     const dl = clock.promiseDeadline(p.dueDate, p.dueTime);
     if (!dl || dl.due <= made.at) { judgement.push({ why: `A promise with no clear time ("${p.when || "no time given"}")`, event: made, quote: p.quote }); continue; }
     if (p.action === "other") { judgement.push({ why: "A promise HubSpot cannot show was kept", event: made, quote: p.quote }); continue; }
-    const test = p.action === "call" ? isOurCall : (e) => emailToClient(e) || isWhatsApp(e);
+    const test = p.action === "call" ? isOurCall : p.action === "talk" ? (e) => isOurCall(e) || e.kind === "meeting"
+      : p.action === "contact" ? isTouch : (e) => emailToClient(e) || isWhatsApp(e);
     const met = firstAfter(ev, made.at, test);
     add({ type: "promise", start: made.at, due: dl.due, moved: dl.moved, metAt: met ? met.at : null, metBy: met, trigger: made, quote: p.quote, action: p.action, when: p.when });
   }
@@ -275,7 +314,7 @@ function comment(o, firstName, { hrs, fmtDue }) {
     case "callreq":
       return `${o.missedCall ? `Client rang on ${fmtWhen(o.start)} and was not answered` : `Client asked for a call on ${fmtWhen(o.start)}${q}`}. No call was made by ${fmtDue(o.due)}. ${next}`;
     case "promise":
-      return `${firstName} wrote on ${fmtWhen(o.start)}${q}: a promise ${o.action === "call" ? "to call" : "to send it"} ${o.when ? `"${o.when}"` : ""}, due ${fmtDue(o.due)}${o.moved ? " (the day named was a day off, so the next working day was allowed)" : ""}. ${next}`;
+      return `${firstName} wrote on ${fmtWhen(o.start)}${q}: a promise ${({ call: "to call", talk: "to speak", contact: "to follow up" })[o.action] || "to send it"} ${o.when ? `"${o.when}"` : ""}, due ${fmtDue(o.due)}${o.moved ? " (the day named was a day off, so the next working day was allowed)" : ""}. ${next}`;
     case "task":
       return o.verdict === "late"
         ? `Task "${short(o.quote, 70)}" was due ${fmtDue(o.due)}; the first follow-up after it was on ${fmtWhen(o.metAt)}.`
@@ -296,4 +335,4 @@ function silenceComment(s, { fmtDay }) {
   return `No email, call or WhatsApp to the client for ${Math.ceil(s.gapWd - 0.05)} working days from ${fmtDay(s.from)} ${end}, while the case was ${HOLDER_LABEL[s.holder] || "live"} (allowed: ${s.allowWd}). ${SUB_LABEL[s.sub]}${t}.`;
 }
 
-module.exports = { computeComms, LABEL, PART, SUB_LABEL, HOLDER_LABEL, comment, silenceComment, isTouch, answersEmail, emailToClient, STRICT_CALL, short };
+module.exports = { computeComms, LABEL, PART, SUB_LABEL, HOLDER_LABEL, comment, silenceComment, isTouch, answersEmail, emailToClient, STRICT_CALL, STRICT_PROMISE, phrasePromises, short };
