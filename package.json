@@ -1,0 +1,10 @@
+{
+  "name": "hof-case-delay-review",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Case delay review: every case manager case since January, checked against a five-month plan, with every late day traced to its cause",
+  "main": "report.js",
+  "scripts": { "start": "node report.js", "test": "node selftest.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "exceljs": "^4.4.0" }
+}

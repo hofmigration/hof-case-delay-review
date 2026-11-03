@@ -1,0 +1,79 @@
+name: Case delay review
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "discover = check the connections first · report = run the review"
+        required: true
+        type: choice
+        default: report
+        options: [report, discover]
+      case_managers:
+        description: "all, or names / HubSpot owner ids separated by commas"
+        required: true
+        default: "all"
+        type: string
+      programs:
+        description: "Which programs"
+        required: true
+        type: choice
+        default: all
+        options: [all, USA, Canada, Australia]
+      from_date:
+        description: "Cases whose owner was assigned on or after (YYYY-MM-DD)"
+        required: true
+        default: "2026-01-01"
+        type: string
+      limit:
+        description: "all, or a number of cases for a quick test run"
+        required: true
+        default: "all"
+        type: string
+      send_email:
+        description: "Email the workbook when the review finishes?"
+        required: true
+        type: choice
+        default: "true"
+        options: ["true", "false"]
+
+concurrency:
+  group: case-delay-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-audit --no-fund
+      - name: Check the rules still work
+        run: node selftest.js
+      - name: Run the review
+        run: node report.js
+        env:
+          NODE_OPTIONS: "--max-old-space-size=6144"
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          GEMINI_KEY_2: ${{ secrets.GEMINI_KEY_2 }}
+          PETITION_API_KEY: ${{ secrets.PETITION_API_KEY }}
+          CHATWOOT_TOKEN: ${{ secrets.CHATWOOT_TOKEN }}
+          CHATWOOT_URL: ${{ secrets.CHATWOOT_URL }}
+          RESEND_KEY: ${{ secrets.RESEND_KEY }}
+          MODE: ${{ inputs.mode }}
+          CASE_MANAGERS: ${{ inputs.case_managers }}
+          PROGRAMS: ${{ inputs.programs }}
+          FROM_DATE: ${{ inputs.from_date }}
+          LIMIT: ${{ inputs.limit }}
+          SEND_EMAIL: ${{ inputs.send_email }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: case-delay-review
+          path: out/
+          retention-days: 7
+          if-no-files-found: ignore
