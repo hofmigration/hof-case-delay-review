@@ -35,14 +35,14 @@ and 130 Australia.
 | `HUBSPOT_TOKEN` | the HOF private app token |
 | `RESEND_KEY` | the key your other reports send with |
 | `PETITION_API_KEY` | the Petition Studio `x-api-key`, for the USA check |
-| `GEMINI_KEY` | for the reader (see below). **Use a paid-tier key**: case emails are sent to it |
-| `GEMINI_KEY_2` | optional second key, used in turn |
 | `CHATWOOT_TOKEN` | optional, so WhatsApp replies and follow-ups are seen |
 | `CHATWOOT_URL` | `https://inbox.hofmigration.com` |
 
 Without `PETITION_API_KEY`, USA cases are still reviewed, but who holds a petition comes only
 from HubSpot's stage and Petition Status. Without `CHATWOOT_TOKEN`, a client answered only on
 WhatsApp counts as not answered. The email says which of these were off.
+
+No Gemini key is needed. The review runs on rules alone (see **The reader** below).
 
 ## Running it
 
@@ -62,9 +62,9 @@ Go to **Actions → Case delay review → Run workflow**.
 | limit | `all`, or a number (e.g. `50`) for a quick test run |
 | send_email | true / false |
 
-A full run takes about 45 to 90 minutes. Every case's history is read one by one, HubSpot is
-paced so your other agents keep working, and the reader works through the flagged lines in
-batches, most delayed cases first. The email goes to razaali@hofmigration.com. The
+A full run takes about 30 to 60 minutes. Every case's history is read one by one, and HubSpot,
+Petition Studio and Chatwoot are paced so your other agents keep working. The email goes to
+razaali@hofmigration.com. The
 workbook is also kept for 7 days on the run's page, under **Artifacts**. It contains client
 names, so keep the repo private.
 
@@ -144,13 +144,13 @@ These are the case review agent's rules, plus the case manager bot's rules.
 |---|---|
 | Email replies | A client email that asks for something gets a response within **24 working hours**: an email, a connected call or a WhatsApp. Thank-yous, automatic replies and documents sent with nothing asked do not need one. These are the same rules as the daily email-reply report. |
 | Requested calls | A client asking for a call, or ringing unanswered, gets a call **the same working day** (after 6pm, by the end of the next). A call made counts even if the client does not pick up. |
-| Promises | "I'll call you tomorrow" is kept by the time named. |
+| Promises | "I'll call you tomorrow" is kept by the time named: a promised call by a call, a promised meeting by a call or meeting, "I will follow up on Monday" by any contact, "we will send it" by an email or WhatsApp. |
 | Tasks | Done by the end of the due day: ticked, or the client contacted by then. |
 | Complaints | Recorded in a note within 24 working hours. |
 | After every call | An email reaches the client that day, a next follow-up task is set, and a connected call has notes. Only a wrong number excuses the email. |
 | Follow-up kept up | While live, the client hears from HOF at least every **10** working days while waiting on the client, **5** on the case manager's own step, **10** with the petition team, and **15** with an outside body. |
 | Tags | A note that tags someone and asks them to act gets a later note, email or call from them within 48 working hours. Not scored: HubSpot does not let any program read comments. |
-| Tone | Only genuinely rude, dismissive or aggressive wording to a client. |
+| Tone | Only genuinely rude, dismissive or aggressive wording to a client. Needs the reader, so it is off by default. |
 
 "Working hours" never count Saturday, Sunday or UAE public holidays.
 
@@ -210,19 +210,31 @@ When Petition Studio is two phases ahead of HubSpot, the stage was simply not up
 | All cases | Every case, one row each |
 | How it was checked | Every rule, written out |
 
-## The reader
+## The reader (off)
 
 Some obligations are only in the words: a client asking for a call, a promise with a time, a
-complaint, a tag asking a colleague to act, or an unprofessional email. A filter picks out only
-the lines that could hold one. Those lines are read by Gemini in batches, most delayed cases
-first. The reader is never trusted on its word:
+complaint. With the reader off, which is the default, these come from clear phrases:
 
-- every item must quote its line, and the quote is checked in code
-- a client's words can never become a staff promise
-- it never decides whether anything was late
+- **Call requests:** every client call that went unanswered, plus client emails that say so
+  plainly ("please call me", "call me back").
+- **Complaints:** client emails with clear complaint wording.
+- **Promises:** emails to the client that promise something on a named day ("I will call you
+  tomorrow at 3pm", "we will send it on Monday", "I will follow up with you on Monday", "we will
+  reconnect on Tuesday"). Anything hedged ("if", "once", "try to", "hopefully") is left out, and
+  so is "next week", because it does not say which day.
 
-Without `GEMINI_KEY`, call requests come only from clear phrases ("please call me"). Promises,
-tags and tone are not checked, and the email says so.
+Two things are not checked while it is off: tags between colleagues (never scored anyway) and
+the tone of emails. The email says so in its notes.
+
+The rules for email replies, missed calls, tasks, follow-up gaps, the after-call rules, stages
+and Petition Studio never needed the reader.
+
+**Turning it on later.** The reader sends clients' own words to Gemini. Google's terms for the
+free tier say not to send personal information, so only turn it on if HOF switches on billing
+for the Google project behind the key. That is pay-per-use with no subscription, and costs a few
+dollars per full run. Then add the key as the `GEMINI_KEY` secret and set `USE_AI_READ: true`
+in config.js. With it on, every item must quote its line (checked in code), a client's words can
+never become a staff promise, and it never decides whether anything was late.
 
 ## Things to confirm before using it in reviews
 
@@ -251,5 +263,5 @@ tags and tone are not checked, and the email says so.
 ## Changing a rule
 
 Every rule is in `config.js`, in plain words, and every rule has a test in `selftest.js`. The
-test runs before each review and shows `100 passed, 0 failed`. If a rule stops behaving, the
+test runs before each review and shows `105 passed, 0 failed`. If a rule stops behaving, the
 review does not go out.
