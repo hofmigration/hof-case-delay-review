@@ -129,7 +129,7 @@ async function discover() {
     try { const h = await H.history("deals", d.id, C.HISTORY_PROPS); log(`  ok  stage history (${(h.dealstage || []).length} changes), owner history (${(h.hubspot_owner_id || []).length})`); }
     catch (e) { log(`  !!  history: ${e.message.slice(0, 90)}`); }
   }
-  log(`\nReader: ${process.env.GEMINI_KEY ? await pickModel() : "off (no GEMINI_KEY): promises, complaints, tags and tone will not be read"}`);
+  log(`\nReader: ${SETTINGS.USE_AI_READ && process.env.GEMINI_KEY ? await pickModel() : `off (${SETTINGS.USE_AI_READ ? "no GEMINI_KEY" : "USE_AI_READ is false in config.js"}): call requests, complaints and promises come from clear phrases only; tags and tone are not read`}`);
   log(`WhatsApp: ${WA.whatsappOn() ? "Chatwoot token present" : "off (no CHATWOOT_TOKEN): emails answered on WhatsApp will count as unanswered"}`);
   if (PS.on()) {
     const s = await PS.loadStudio(log);
@@ -187,7 +187,7 @@ async function report() {
   // ---- the reader, most delayed cases first
   const { byCase, stats: ai } = await readCases(rows.map((r, idx) => ({ idx, c: r.c, fromMs: r.facts.reviewStart, priority: r.attr.lateMs + r.facts.behindMs })), log);
   log(`Reader: ${ai.off ? "off" : `${ai.requests} requests, ${ai.linesRead} lines read, ${ai.linesUnread} not read, ${ai.dropped} unverifiable items dropped`}`);
-  if (ai.off) warnings.push("The reader was off (no GEMINI_KEY), so call requests were taken only from clear phrases, and promises, tags and tone were not checked.");
+  if (ai.off) warnings.push(`The reader was off${SETTINGS.USE_AI_READ ? " (no GEMINI_KEY)" : ""}, so call requests, complaints and promises were taken only from clear phrases ("please call me", "I will call you tomorrow"), and tags between colleagues and email tone were not checked.`);
   else if (ai.casesUnread) warnings.push(`${ai.casesUnread} cases could not be read in full (reader limit or errors); they use the rules that need no reading.`);
 
   // ---- Petition Studio, every USA case
