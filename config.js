@@ -132,8 +132,12 @@ const SETTINGS = {
   // on it, a complaint, a tag asking a colleague to act, or an unprofessional email. A cheap
   // filter picks out only the lines that could hold one; the reader checks those, and every
   // item it returns must quote its line, which is verified in code. It never decides lateness.
-  // Use a PAID-tier Gemini key: on the free tier Google may use what is sent.
-  USE_AI_READ: true,
+  // Off by default. Turn it on only with a Gemini key whose Google project has billing on:
+  // Google's terms for the free tier say not to send personal information, and the reader
+  // sends clients' own words. While it is off, call requests, complaints and promises are
+  // taken from clear phrases only ("please call me", "I will call you tomorrow at 3pm"), and
+  // tags and tone are not checked.
+  USE_AI_READ: false,
   AI_MODELS: ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest"],
   AI_BATCH_LINES: 40,
   AI_BATCH_CHARS: 16000,
